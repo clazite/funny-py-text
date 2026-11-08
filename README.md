@@ -1,5 +1,11 @@
 # Dum shit i made for fun 
 
+## previews
+
+<img src="output/skibidi.gif" alt="Skibidi GIF preview" width="480">
+
+<img src="output/gae.gif" alt="Gae GIF preview" width="480">
+
 current font is from: https://github.com/Gissio/font_Tiny5Mono
 
 ## requirementssssss 
