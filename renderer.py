@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 DROOT = Path(__file__).resolve().parent
-DEF_FON = DROOT / "assets" / "coolfont.ttf"
+DEF_FON = DROOT / "assets" / "DepartureMono.otf"
 DEF_VERT = DROOT / "shaders" / "emphemera.vert.glsl"
 DEF_SHADER = DROOT / "shaders" / "emphemera.frag.glsl"
 DEF_SHADCONF = DROOT / "shaders" / "config.txt"
@@ -23,8 +23,9 @@ DEFG = DEF_OUT / "resultt.gif"
 
 # defau vals
 DEF_IDLE = 0.0
-DEF_ANIMATE = 6.0
-DEF_HOLD = 0.0
+DEF_ANIMATE = 3.0
+DEF_HOLD = 1.0
+DEF_DISSOLVE = 4.0
 DEF_SHADSPEED = 1.0
 DEF_TEXT = "i hate python and i must code\\nHello, World!"
 
@@ -91,6 +92,7 @@ class Timeline:
     idle: float = DEF_IDLE
     animate: float = DEF_ANIMATE
     hold: float = DEF_HOLD
+    dissolve: float = DEF_DISSOLVE
     def __post_init__(self) -> None:
         if self.idle < 0:
             raise ValueError("idle duration must be >= 0")
@@ -98,9 +100,11 @@ class Timeline:
             raise ValueError("animate duration must be > 0")
         if self.hold < 0:
             raise ValueError("hold duration must be >= 0")
+        if self.dissolve <= 0:
+            raise ValueError("dissolve duration must be > 0")
     @property
     def cycle(self) -> float:
-        return self.idle + self.animate + self.hold
+        return self.idle + self.animate + self.hold + self.dissolve
 
     def frame_count(self, fps: int) -> int:
         return max(1, round(self.cycle * fps))
@@ -134,15 +138,19 @@ class Timeline:
             )
 
         local -= self.animate
+        if local < self.hold:
+            return FrameState(
+                phase="hold", phase_time=local, time=self.animate + local,
+                progress=1.0,
+                idle=0.0, hold=local / self.hold,
+                phase_index=2.0, clock=t,
+            )
+
+        local -= self.hold
         return FrameState(
-            phase="hold",
-            phase_time=local,
-            time=self.animate,
-            progress=1.0,
-            idle=0.0,
-            hold=1.0,
-            phase_index=2.0,
-            clock=t,
+            phase="dissolve", phase_time=local, time=self.animate + local,
+            progress=local / self.dissolve, idle=0.0, hold=0.0,
+            phase_index=3.0, clock=t,
         )
 
 
@@ -579,6 +587,8 @@ class ShaderRenderer:
         self._uniform("uTime", float(shader_time))
         self._uniform("uFrame", int(round(shader_time * 60.0)))
         self._uniform("uProgress", float(state.progress))
+        self._uniform("uHoldProgress", float(state.hold))
+        self._uniform("uPhase", int(state.phase_index))
         self._uniform("uSdf", sdf_unit)
         self._uniform("uHalfSize", self.text_sdf.half_size)
         self._uniform("uRange", float(self.text_sdf.range_p))
@@ -933,7 +943,13 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         "--hold",
         type=float,
         default=DEF_TIMELINE.hold,
-        help=f"hold-final-frame seconds (default: {DEF_TIMELINE.hold:g})",
+        help=f"wait duration before dissolve (default: {DEF_TIMELINE.hold:g})",
+    )
+    parser.add_argument(
+        "--dissolve",
+        type=float,
+        default=DEF_TIMELINE.dissolve,
+        help=f"dissolve duration (default: {DEF_TIMELINE.dissolve:g})",
     )
     parser.add_argument(
         "--speed",
@@ -949,7 +965,8 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
 def config_from_args(args: argparse.Namespace) -> tuple[RenderConfig, Timeline]:
     try:
         timeline = Timeline(
-            idle=args.idle, animate=args.animate, hold=args.hold)
+            idle=args.idle, animate=args.animate, hold=args.hold,
+            dissolve=args.dissolve)
         config = RenderConfig(
             width=args.width,
             height=args.height,

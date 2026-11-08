@@ -6,7 +6,7 @@
 
 <img src="output/gae.gif" alt="Gae GIF preview" width="480">
 
-current font is from: https://github.com/Gissio/font_Tiny5Mono
+default font: `assets/DepartureMono.otf`
 
 ## requirementssssss 
 
@@ -48,15 +48,18 @@ u can change the fps
 .venv/bin/python export.py output/shit.gif
 ```
 ## uhh 
-this thing has anim state: idle, animate, hold
+this thing has anim states: idle, animate, hold, dissolve
 
 idle is self explanatory u get it
-animate is shaders duration
-hold is same as idle i just put it here cuz yeah
+animate is the reveal sweep duration. `hold` keeps the shader's trailing smoke
+moving after the reveal, before the dissolve starts. `--dissolve` sets the
+dissolve sweep duration.
 
-they're configurable, jus add options to da renderer.py or export.py `--idle` .. wuter
+they're configurable with `--idle`, `--animate`, `--hold`, and `--dissolve`.
 
-shader speed is `--speed` default `1.0`
+shader speed is `--speed` default `1.0`. The reveal and dissolve sweeps use
+normalized progress, so each reaches its endpoint at the end of its configured
+duration. `--speed` controls the smoky noise motion within those sweeps.
 
 ## shaders 
 open shaders/ duh, everythin is in it
@@ -65,7 +68,9 @@ open shaders/ duh, everythin is in it
 uniform vec2      uResolution;  // render size in px 
 uniform float     uTime;        // time 
 uniform int       uFrame;       // frame 
-uniform float     uProgress;    // 0 idle, 0 < x < 1 animate, 1 hold
+uniform float     uProgress;    // normalized progress within reveal/dissolve
+uniform float     uHoldProgress; // residue progress from 0 to 1 during hold
+uniform int       uPhase;       // 0 idle, 1 reveal, 2 hold, 3 dissolve
 uniform sampler2D uSdf;         // sdf tex 
 uniform vec2      uHalfSize;    // 1/2 size of the sdf box in p-space
 uniform float     uRange;       // sdf distance range in p-space

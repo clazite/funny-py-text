@@ -5,6 +5,8 @@ precision highp int;
 uniform vec2 uResolution;
 uniform float uTime;
 uniform float uProgress;
+uniform float uHoldProgress;
+uniform int uPhase;
 uniform int uFrame;
 uniform sampler2D uSdf;
 uniform vec2 uHalfSize;
@@ -61,17 +63,24 @@ vec3 ephemeralColor(float t) {
   return saturate(1.0 - abs(3.0 * t - vec3(1.0, 1.5, 2.0)));
 }
 
+float residueTrail(float x01) {
+  float lead = 0.15;
+  float tail = 0.45;
+  float residue = 0.5;
+  float front = mix(-lead, 1.0 + lead, uProgress);
+  if (uPhase == 2) front += uHoldProgress * tail * 6.0;
+  float dd = x01 - front;
+  float behind = 1.0 - smoothstep(0.0, lead, dd);
+  return residue * exp(dd / tail) * behind;
+}
+
 float pulse(float x01) {
-  float lead = 0.7; // width of sweeeeeeeeeeeeeeeeep
-  float tail = 1.2; // how far residue
-  float residue = 0.5; // strenght compared to normal, normal is 1, none is 0
-
-  float front = mix(-lead, 1.0 + tail * 5.0, uProgress);
-  float dd = x01 - front; // negative = behind front
-
-  float peak = 1.0 - smoothstep(0.0, lead, abs(dd));
-  float behind = 1.0 - smoothstep(0.0, lead, dd); // 1 behind front, 0 ahead front
-  float trail = residue * exp(dd / tail) * behind;
+  float lead = 0.15;
+  float tail = 0.45;
+  float front = mix(-lead, 1.0 + lead, uProgress);
+  if (uPhase == 2) front += uHoldProgress * tail * 6.0;
+  float peak = 1.0 - smoothstep(0.0, lead, abs(x01 - front));
+  float trail = residueTrail(x01);
 
   return max(peak, trail);
 }
@@ -85,10 +94,19 @@ void main() {
   float dice = ignAnimated(fragCoord);
   vec3 aa = vec3(0.0);
 
-  float k = pulse(p.x / uHalfSize.x * 0.5 + 0.5);
+  float x01 = p.x / uHalfSize.x * 0.5 + 0.5;
+  float k = (uPhase == 1 || uPhase == 2 || uPhase == 3)
+      ? pulse(x01) : 0.0;
+  float sweepEdge = mix(-0.12, 1.12, uProgress);
+  float sweep = smoothstep(sweepEdge - 0.025, sweepEdge + 0.025, x01);
+  float residueFade = 1.0 - smoothstep(0.72, 1.0, uProgress);
+  float dissolveTrail = residueTrail(x01) * residueFade;
+  float visibility = 1.0;
+  if (uPhase == 0) visibility = 0.0;
+  else if (uPhase == 1) visibility = 1.0 - sweep;
+  else if (uPhase == 3) visibility = max(sweep, dissolveTrail);
 
   float flow = 3.0;
-  float speed = 2.5;
 
   repeat(i, SAMPLES)
   {
@@ -99,11 +117,12 @@ void main() {
     pt.y -= (1.0 - exp(-uDrip * k * e2)) * abs(pt.y) * sign(pt.y);
     vec2 drift = vec2(uProgress * flow, 0.0);
     pt += uAmp * k * e2 * cyclicNoise(
-          uFreq * vec3(p - drift, uTime * speed - e2), 1.5).xy;
+          uFreq * vec3(p - drift, uTime - e2), 1.5).xy;
     vec3 color = 3.0 / float(SAMPLES) * ephemeralColor(e);
 
     aa += color * linearstep(d + uBlur * k * e2, -d, shape(pt));
   }
 
+  aa *= visibility;
   fragColor = vec4(aa, max(aa.r, max(aa.g, aa.b)));
 }
