@@ -15,6 +15,9 @@ uniform float uDrip;
 uniform float uAmp;
 uniform float uBlur;
 uniform vec3 uFreq;
+uniform float uLead;
+uniform float uTrail;
+uniform float uResidue;
 out vec4 fragColor;
 
 #define saturate(i) clamp(i,0.,1.)
@@ -64,22 +67,17 @@ vec3 ephemeralColor(float t) {
 }
 
 float residueTrail(float x01) {
-  float lead = 0.15;
-  float tail = 0.45;
-  float residue = 0.5;
-  float front = mix(-lead, 1.0 + lead, uProgress);
-  if (uPhase == 2) front += uHoldProgress * tail * 6.0;
+  float front = mix(-uLead, 1.0 + uLead, uProgress);
+  if (uPhase == 2) front += uHoldProgress * uTrail * 6.0;
   float dd = x01 - front;
-  float behind = 1.0 - smoothstep(0.0, lead, dd);
-  return residue * exp(dd / tail) * behind;
+  float behind = 1.0 - smoothstep(0.0, uLead, dd);
+  return uResidue * exp(dd / uTrail) * behind;
 }
 
 float pulse(float x01) {
-  float lead = 0.15;
-  float tail = 0.45;
-  float front = mix(-lead, 1.0 + lead, uProgress);
-  if (uPhase == 2) front += uHoldProgress * tail * 6.0;
-  float peak = 1.0 - smoothstep(0.0, lead, abs(x01 - front));
+  float front = mix(-uLead, 1.0 + uLead, uProgress);
+  if (uPhase == 2) front += uHoldProgress * uTrail * 6.0;
+  float peak = 1.0 - smoothstep(0.0, uLead, abs(x01 - front));
   float trail = residueTrail(x01);
 
   return max(peak, trail);

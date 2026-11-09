@@ -35,6 +35,9 @@ FALLBACK_SHAD: dict[str, float | tuple[float, ...]] = {
     "uAmp": 0.5,
     "uBlur": 0.08,
     "uFreq": (1.3, 1.3, 1.2),
+    "uLead": 0.15,
+    "uTrail": 0.45,
+    "uResidue": 0.5,
 }
 
 # Internal pass that copies the render target into a second framebuffer while

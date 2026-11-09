@@ -82,7 +82,12 @@ uDrip 1.0
 uAmp 1.0
 uBlur 0.05
 uFreq 1.3, 1.3, 1.2
+uLead 0.15
+uTrail 0.45
+uResidue 0.5
 ```
+`uLead`, `uTrail`, and `uResidue` control the pulse width, trailing length,
+and residue strength in the fragment shader.
 
 # big thanks to 0b5vr, i borrowed his emphemera shaders thing from shadertoy, it's reallllly cool i love u 0b5vr!!!
 i also modified da shaders so it's not entirely a copy and paste
