@@ -2,9 +2,7 @@
 
 ## previews
 
-<img src="output/skibidi.gif" alt="Skibidi GIF preview" width="480">
-
-<img src="output/gae.gif" alt="Gae GIF preview" width="480">
+<img src="output/resultt.gif" alt="Skibidi GIF preview" width="480">
 
 default font: `assets/DepartureMono.otf`
 

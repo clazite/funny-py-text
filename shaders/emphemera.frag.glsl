@@ -88,13 +88,10 @@ void main() {
   vec2 p = fragCoord / uResolution * 2.0 - 1.0;
   p.x *= uResolution.x / uResolution.y;
   float d = 1.0 / uResolution.y;
-
   float dice = ignAnimated(fragCoord);
   vec3 aa = vec3(0.0);
-
   float x01 = p.x / uHalfSize.x * 0.5 + 0.5;
-  float k = (uPhase == 1 || uPhase == 2 || uPhase == 3)
-      ? pulse(x01) : 0.0;
+  float k = (uPhase == 1 || uPhase == 2 || uPhase == 3) ? pulse(x01) : 0.0;
   float sweepEdge = mix(-0.12, 1.12, uProgress);
   float sweep = smoothstep(sweepEdge - 0.025, sweepEdge + 0.025, x01);
   float residueFade = 1.0 - smoothstep(0.72, 1.0, uProgress);
@@ -103,24 +100,19 @@ void main() {
   if (uPhase == 0) visibility = 0.0;
   else if (uPhase == 1) visibility = 1.0 - sweep;
   else if (uPhase == 3) visibility = max(sweep, dissolveTrail);
-
   float flow = 3.0;
-
   repeat(i, SAMPLES)
   {
     vec2 pt = p;
     float e = (float(i) + dice) / float(SAMPLES);
     float e2 = e * e;
-
     pt.y -= (1.0 - exp(-uDrip * k * e2)) * abs(pt.y) * sign(pt.y);
     vec2 drift = vec2(uProgress * flow, 0.0);
-    pt += uAmp * k * e2 * cyclicNoise(
-          uFreq * vec3(p - drift, uTime - e2), 1.5).xy;
+    pt += uAmp * k * e2 * cyclicNoise(uFreq * vec3(p - drift, uTime - e2), 1.5).xy;
     vec3 color = 3.0 / float(SAMPLES) * ephemeralColor(e);
 
     aa += color * linearstep(d + uBlur * k * e2, -d, shape(pt));
   }
-
   aa *= visibility;
   fragColor = vec4(aa, max(aa.r, max(aa.g, aa.b)));
 }
