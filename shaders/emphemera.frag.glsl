@@ -7,6 +7,7 @@ uniform float uTime;
 uniform float uProgress;
 uniform float uHoldProgress;
 uniform int uPhase;
+uniform int uAlwaysVisible;
 uniform int uFrame;
 uniform sampler2D uSdf;
 uniform vec2 uHalfSize;
@@ -18,6 +19,8 @@ uniform vec3 uFreq;
 uniform float uLead;
 uniform float uTrail;
 uniform float uResidue;
+uniform int uFracDivision; // default: 5.0
+uniform float uFractStep; // default: 2.0
 out vec4 fragColor;
 
 #define saturate(i) clamp(i,0.,1.)
@@ -44,13 +47,13 @@ mat3 getOrthogonalBasis(vec3 z) {
 vec3 cyclicNoise(vec3 p, float pump) {
   vec4 sum = vec4(0.0);
   mat3 basis = getOrthogonalBasis(vec3(-1.0, 2.0, -3.0));
-  repeat(i, 5)
+  repeat(i, uFracDivision) // more count is more fractal division
   {
     p *= basis;
     p += sin(p.yzx);
     sum += vec4(cross(cos(p), sin(p.zxy)), 1.0);
     sum *= pump;
-    p *= 2.0;
+    p *= uFractStep; // * float = fractal influence
   }
   return sum.xyz / sum.w;
 }
@@ -97,9 +100,11 @@ void main() {
   float residueFade = 1.0 - smoothstep(0.72, 1.0, uProgress);
   float dissolveTrail = residueTrail(x01) * residueFade;
   float visibility = 1.0;
-  if (uPhase == 0) visibility = 0.0;
-  else if (uPhase == 1) visibility = 1.0 - sweep;
-  else if (uPhase == 3) visibility = max(sweep, dissolveTrail);
+  if (uAlwaysVisible == 0) {
+    if (uPhase == 0) visibility = 0.0;
+    else if (uPhase == 1) visibility = 1.0 - sweep;
+    else if (uPhase == 3) visibility = max(sweep, dissolveTrail);
+  }
   float flow = 3.0;
   repeat(i, SAMPLES)
   {

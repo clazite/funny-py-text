@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import re
+import struct
 import sys
 import time
 from dataclasses import dataclass, replace
@@ -38,12 +39,14 @@ FALLBACK_SHAD: dict[str, float | tuple[float, ...]] = {
     "uLead": 0.15,
     "uTrail": 0.45,
     "uResidue": 0.5,
+    "uFracDivision": 5,
+    "uFracStep": 2.0
 }
 
 # Internal pass that copies the render target into a second framebuffer while
 # flipping it vertically. OpenGL framebuffers are bottom-up, but PIL images are
 # top-down; doing the flip on the GPU avoids a full-resolution CPU transpose
-# (~13 ms at 960x960) on every preview frame. 
+# (~13 ms at 960x960) on every preview frame.
 
 # WHO WROTE THIS? IDK PROBABLY GITHUB COPILOT IMA KEEP IT HERE SINCE I FORGET EASILY
 FLIPVERT = """\
@@ -88,6 +91,7 @@ class FrameState:
     hold: float
     phase_index: float
     clock: float
+    always_visible: bool = False
 
 
 @dataclass(frozen=True)
@@ -96,6 +100,8 @@ class Timeline:
     animate: float = DEF_ANIMATE
     hold: float = DEF_HOLD
     dissolve: float = DEF_DISSOLVE
+    always_visible: bool = False
+
     def __post_init__(self) -> None:
         if self.idle < 0:
             raise ValueError("idle duration must be >= 0")
@@ -103,14 +109,21 @@ class Timeline:
             raise ValueError("animate duration must be > 0")
         if self.hold < 0:
             raise ValueError("hold duration must be >= 0")
-        if self.dissolve <= 0:
+        if not self.always_visible and self.dissolve <= 0:
             raise ValueError("dissolve duration must be > 0")
+
     @property
     def cycle(self) -> float:
+        if self.always_visible:
+            return self.idle + self.animate + self.hold
         return self.idle + self.animate + self.hold + self.dissolve
 
     def frame_count(self, fps: int) -> int:
         return max(1, round(self.cycle * fps))
+
+    def blend_fram(self, index: int, step: int, fuckassium: bool):
+        # TODO: implement linear fade frame blending
+        pass
 
     def sample(self, t: float) -> FrameState:
         local = t % self.cycle
@@ -125,9 +138,37 @@ class Timeline:
                 hold=0.0,
                 phase_index=0.0,
                 clock=t,
+                always_visible=self.always_visible,
             )
 
         local -= self.idle
+        if self.always_visible:
+            if local < self.animate:
+                return FrameState(
+                    phase="animate",
+                    phase_time=local,
+                    time=local,
+                    progress=min(1.0, local / self.animate),
+                    idle=0.0,
+                    hold=0.0,
+                    phase_index=1.0,
+                    clock=t,
+                    always_visible=True,
+                )
+
+            local -= self.animate
+            return FrameState(
+                phase="hold",
+                phase_time=local,
+                time=self.animate + local,
+                progress=1.0,
+                idle=0.0,
+                hold=(local / self.hold) if self.hold > 0 else 1.0,
+                phase_index=2.0,
+                clock=t,
+                always_visible=True,
+            )
+
         if local < self.animate:
             return FrameState(
                 phase="animate",
@@ -163,7 +204,7 @@ DEF_TIMELINE = Timeline()
 @dataclass(frozen=True)
 class ShaderConfig:
     path: Path
-    uniforms: dict[str, float | tuple[float, ...]]
+    uniforms: dict[str, int | float | tuple[float, ...]]
     sdf_unit: int = 0
 
 
@@ -396,7 +437,8 @@ def buildtextsdf(config: RenderConfig) -> TextSdf:
         align="center",
         spacing=big_spacing,
     )
-    mask_image = big.resize((config.width, config.height), Image.Resampling.LANCZOS)
+    mask_image = big.resize(
+        (config.width, config.height), Image.Resampling.LANCZOS)
     mask = np.asarray(mask_image) > 127
 
     ys, xs = np.nonzero(mask)
@@ -413,8 +455,10 @@ def buildtextsdf(config: RenderConfig) -> TextSdf:
     pad = range_px + 2
     center_x = config.width // 2
     center_y = config.height // 2
-    half_w = int(max(abs(int(xs.min()) - center_x),abs(int(xs.max()) - center_x)))
-    half_h = int(max(abs(int(ys.min()) - center_y),abs(int(ys.max()) - center_y)))
+    half_w = int(max(abs(int(xs.min()) - center_x),
+                 abs(int(xs.max()) - center_x)))
+    half_h = int(max(abs(int(ys.min()) - center_y),
+                 abs(int(ys.max()) - center_y)))
     half_w = min(max(half_w + pad, 1), config.width)
     half_h = min(max(half_h + pad, 1), config.height)
     # center and crop the mask
@@ -450,16 +494,22 @@ class ShaderRenderer:
         self._config_mtime: float | None = None
         try:
             self.ctx.viewport = (0, 0, config.width, config.height)
-            self.color_texture = self.ctx.texture((config.width, config.height), 4)
+            self.color_texture = self.ctx.texture(
+                (config.width, config.height), 4)
             self.color_texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
-            self.fbo = self.ctx.framebuffer(color_attachments=[self.color_texture])
-            self.display_texture = self.ctx.texture((config.width, config.height), 4)
+            self.fbo = self.ctx.framebuffer(
+                color_attachments=[self.color_texture])
+            self.display_texture = self.ctx.texture(
+                (config.width, config.height), 4)
             self.display_texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
-            self.display_fbo = self.ctx.framebuffer(color_attachments=[self.display_texture])
-            self._flip_program = self.ctx.program(vertex_shader=FLIPVERT,fragment_shader=FLIPFRAG,)
+            self.display_fbo = self.ctx.framebuffer(
+                color_attachments=[self.display_texture])
+            self._flip_program = self.ctx.program(
+                vertex_shader=FLIPVERT, fragment_shader=FLIPFRAG,)
             self._flip_vao = self.ctx.vertex_array(self._flip_program, [])
             self.text_sdf = buildtextsdf(config)
-            self.sdf_texture = self.ctx.texture((self.text_sdf.width, self.text_sdf.height),1,self.text_sdf.data.tobytes(),dtype="f4")
+            self.sdf_texture = self.ctx.texture(
+                (self.text_sdf.width, self.text_sdf.height), 1, self.text_sdf.data.tobytes(), dtype="f4")
             self.sdf_texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
             self.sdf_texture.repeat_x = False
             self.sdf_texture.repeat_y = False
@@ -569,7 +619,15 @@ class ShaderRenderer:
     def _uniform(self, name: str, value: object) -> None:
         try:
             self._program[name].value = value  # type: ignore[index]
-        except KeyError:
+        except (KeyError, struct.error):
+            # config values are parsed as floats but some uniforms are ints;
+            # retry with an int conversion for whole-valued floats.
+            if isinstance(value, float) and value.is_integer():
+                try:
+                    self._program[name].value = int(value)  # type: ignore[index]
+                except KeyError:
+                    pass
+            # ignore unknown uniforms entirely
             pass
 
     def render(self, state: FrameState) -> None:
@@ -585,13 +643,15 @@ class ShaderRenderer:
         for name, value in self.shader_config.uniforms.items():
             self._uniform(name, value)
 
-        self._uniform("uResolution", (float(self.config.width),float(self.config.height)))
+        self._uniform("uResolution", (float(self.config.width),
+                      float(self.config.height)))
         shader_time = state.time * self.config.shader_speed
         self._uniform("uTime", float(shader_time))
         self._uniform("uFrame", int(round(shader_time * 60.0)))
         self._uniform("uProgress", float(state.progress))
         self._uniform("uHoldProgress", float(state.hold))
         self._uniform("uPhase", int(state.phase_index))
+        self._uniform("uAlwaysVisible", int(state.always_visible))
         self._uniform("uSdf", sdf_unit)
         self._uniform("uHalfSize", self.text_sdf.half_size)
         self._uniform("uRange", float(self.text_sdf.range_p))
@@ -716,8 +776,10 @@ class PreviewWindow:
             1200 / max(config.width, config.height),
         )
         self.scale = scale
-        self.display_size = (max(1, round(config.width * scale)),max(1, round(config.height * scale)))
-        self._photo = self.ImageTk.PhotoImage(Image.new("RGB", self.display_size, (0, 0, 0)))
+        self.display_size = (max(1, round(config.width * scale)),
+                             max(1, round(config.height * scale)))
+        self._photo = self.ImageTk.PhotoImage(
+            Image.new("RGB", self.display_size, (0, 0, 0)))
 
         self.root.bind("<space>", self._toggle_pause)
         self.root.bind("<KeyPress-r>", self._restart)
@@ -890,7 +952,6 @@ def run_preview(
     return 0
 
 
-
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--width", type=int, default=960, help="render width in px (default: 960)"
@@ -946,13 +1007,35 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         "--hold",
         type=float,
         default=DEF_TIMELINE.hold,
-        help=f"wait duration before dissolve (default: {DEF_TIMELINE.hold:g})",
+        help=(
+            "wait duration before dissolve; in pulse mode this is the "
+            f"residue tail before repeating (default: {DEF_TIMELINE.hold:g})"
+        ),
     )
     parser.add_argument(
         "--dissolve",
         type=float,
         default=DEF_TIMELINE.dissolve,
-        help=f"dissolve duration (default: {DEF_TIMELINE.dissolve:g})",
+        help=(
+            "dissolve duration "
+            f"(default: {DEF_TIMELINE.dissolve:g}; ignored in pulse mode)"
+        ),
+    )
+    parser.add_argument(
+        "--animate-dissolve",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "invisible reveal -> hold -> dissolve loop (default); "
+            "use --no-animate-dissolve for the always-visible pulse loop"
+        ),
+    )
+    parser.add_argument(
+        "--pulse",
+        dest="animate_dissolve",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="alias for --no-animate-dissolve (always-visible pulse loop)",
     )
     parser.add_argument(
         "--speed",
@@ -969,7 +1052,8 @@ def config_from_args(args: argparse.Namespace) -> tuple[RenderConfig, Timeline]:
     try:
         timeline = Timeline(
             idle=args.idle, animate=args.animate, hold=args.hold,
-            dissolve=args.dissolve)
+            dissolve=args.dissolve,
+            always_visible=not args.animate_dissolve)
         config = RenderConfig(
             width=args.width,
             height=args.height,
